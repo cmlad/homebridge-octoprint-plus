@@ -13,7 +13,10 @@ Plugin to support [OctoPrint](https://octopi.octoprint.org) 3D printer control v
     {
       "accessory": "OctoPrintPlus",
       "name": "PrinterName",
-      "api_key": "XXXXX"
+      "server": "http://localhost:5000",
+      "api_key": "XXXXX",
+      "allow_pause": true,
+      "allow_cancel": true
     }
 ]
 ```
