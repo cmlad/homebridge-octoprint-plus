@@ -39,22 +39,37 @@ OctoPrintPlus.prototype = {
       .setCharacteristic(Characteristic.Manufacturer, "Guy Sheffer and the Community")
       .setCharacteristic(Characteristic.Model, "OctoPrint");
 
-    var controlService = new Service.Lightbulb();
+    this.controlService = new Service.Lightbulb();
 
-    controlService
+    this.controlService
       .getCharacteristic(Characteristic.On)
       .on('get', this.getPrintingState.bind(this))
       .on('set', this.setPrintingState.bind(this));
 
-    controlService
+    this.controlService
       .getCharacteristic(Characteristic.Brightness)
       .on('get', this.getProgress.bind(this))
       .on('set', this.setProgress.bind(this));
 
     // set name
-    controlService.setCharacteristic(Characteristic.Name, this.name);
+    this.controlService.setCharacteristic(Characteristic.Name, this.name);
 
-    return [informationService, controlService];
+    return [informationService, this.controlService];
+  },
+
+  refreshState() {
+    this.getPrintingState(function(a, b) {
+      this.controlService.getCharacteristic(Characteristic.On).updateValue(b);
+    }.bind(this));
+    this.getProgress(function(a, b) {
+      this.controlService.getCharacteristic(Characteristic.Brightness).updateValue(b);
+    }.bind(this));
+  },
+
+  refreshStateWithDelay() {
+    setTimeout(function() {
+      this.refreshState();
+    }.bind(this), 2000);
   },
 
   // This function gets the current printing state (1 = printing, 0 = not printing)
@@ -72,7 +87,7 @@ OctoPrintPlus.prototype = {
     };
 
     axios.request(options).then(function(printState) {
-        var state = printState.state.flags.printing;
+        var state = printState.data.state.flags.printing;
         self.log("Printer is printing: " + state)
         if (state == false) {
           callback(null, 0);
@@ -90,7 +105,8 @@ OctoPrintPlus.prototype = {
     var self = this;
     if (!this.allowPause){
       self.log("Pausing disabled.");
-      callback(null)
+      self.refreshState();
+      callback(null);
     } else if (value == 1) {
       self.log("Resuming print.");
       var options = {
@@ -105,10 +121,12 @@ OctoPrintPlus.prototype = {
         json: true
       };
       axios.request(options).then(function(printState) {
-        self.log("Print resumed successfully.")
+          self.log("Print resumed successfully.")
+          self.refreshState();
           callback(null);
         })
         .catch(function(error) {
+          self.refreshState();
           callback(error);
         });
     } else {
@@ -125,10 +143,12 @@ OctoPrintPlus.prototype = {
         json: true
       };
       axios.request(options).then(function(printState) {
-        self.log("Print paused successfully.")
+          self.log("Print paused successfully.")
+          self.refreshState();
           callback(null);
         })
         .catch(function(error) {
+          self.refreshState();
           callback(error);
         });
     }
@@ -148,7 +168,7 @@ OctoPrintPlus.prototype = {
     };
 
     axios.request(options).then(function(printState) {
-        var completion = printState.progress.completion;
+        var completion = printState.data.progress.completion;
         if (completion == null) {
           self.log("Printer currently not printing.")
           callback(null, 0);
@@ -159,7 +179,7 @@ OctoPrintPlus.prototype = {
         }
       })
       .catch(function(error) {
-        self.log("Error getting printing state, assuming not printing");
+        self.log("Error getting printing progress, assuming not printing");
         callback(null, 0);
       });
   },
@@ -169,30 +189,32 @@ OctoPrintPlus.prototype = {
     self.log("Setting value to " + value);
     if (!this.allowCancel){
       self.log("Canceling disabled.");
+      self.refreshState();
       callback(null)
     } else if (value === 100) {
       self.log("Cancelling print.");
+      var payload = {
+        "command": "cancel"
+      };
       var options = {
-        method: 'POST',
-        url: this.server + '/api/job',
         headers: {
           "X-Api-Key": this.apiKey
-        },
-        body: {
-          "command": "cancel"
-        },
-        json: true
+        }
       };
-      axios.request(options).then(function(printState) {
+      axios.post(this.server + '/api/job', payload, options).then(function(printState) {
         self.log("Print cancelled successfully.")
+          self.refreshStateWithDelay();
           callback(null);
         })
         .catch(function(error) {
           self.log("Error canceling print, assuming not printing");
+          self.log(error);
+          self.refreshStateWithDelay();
           callback(null);
         });
     } else {
       self.log("Cannot set custom progress!");
+      self.refreshState();
       callback(1);
     }
   }
